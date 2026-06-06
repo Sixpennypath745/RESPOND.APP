@@ -4,69 +4,100 @@ import {
   Bell, Activity, Lock, MessageSquare, Send, Siren, Delete,
   LogOut, Shield, HeartPulse, AlertTriangle, Ambulance, Star,
 } from "lucide-react";
+import { supabase } from "./supabase";
+import { initFCM, listenForeground } from "./firebase";
 
 const DEPTS = {
   fire: {
     id: "fire", name: "Fire", short: "FIRE", accent: "#ff3b3b", dim: "#7a1515",
     icon: Flame,
     alerts: [
-      { id: "ALL_CALL",      label: "ALL CALL",      sub: "Report to station now",       color: "#ff3b3b", icon: Flame },
-      { id: "STRUCTURE_FIRE",label: "STRUCTURE FIRE",sub: "Working fire — full response", color: "#ff6a2b", icon: Flame },
-      { id: "MUTUAL_AID",    label: "MUTUAL AID",    sub: "Support requested",            color: "#4a9eff", icon: Radio },
-      { id: "STAND_DOWN",    label: "STAND DOWN",    sub: "Cancel / all clear",           color: "#2dd483", icon: CheckCircle2 },
+      { id: "ALL_CALL",       label: "ALL CALL",       sub: "Report to station now",       color: "#ff3b3b", icon: Flame },
+      { id: "STRUCTURE_FIRE", label: "STRUCTURE FIRE", sub: "Working fire — full response", color: "#ff6a2b", icon: Flame },
+      { id: "MUTUAL_AID",     label: "MUTUAL AID",     sub: "Support requested",            color: "#4a9eff", icon: Radio },
+      { id: "STAND_DOWN",     label: "STAND DOWN",     sub: "Cancel / all clear",           color: "#2dd483", icon: CheckCircle2 },
     ],
   },
   police: {
     id: "police", name: "Police", short: "PD", accent: "#4a7eff", dim: "#1a3580",
     icon: Shield,
     alerts: [
-      { id: "BACKUP",    label: "BACKUP",     sub: "Officer needs assistance",  color: "#4a7eff", icon: ShieldAlert },
-      { id: "ALL_UNITS", label: "ALL UNITS",  sub: "Respond to location",       color: "#7a9fff", icon: Users },
-      { id: "PURSUIT",   label: "PURSUIT",    sub: "In progress — clear radio", color: "#ff3b3b", icon: Siren },
-      { id: "CODE_4",    label: "CODE 4",     sub: "All clear — stand down",    color: "#2dd483", icon: CheckCircle2 },
+      { id: "BACKUP",    label: "BACKUP",    sub: "Officer needs assistance",  color: "#4a7eff", icon: ShieldAlert },
+      { id: "ALL_UNITS", label: "ALL UNITS", sub: "Respond to location",       color: "#7a9fff", icon: Users },
+      { id: "PURSUIT",   label: "PURSUIT",   sub: "In progress — clear radio", color: "#ff3b3b", icon: Siren },
+      { id: "CODE_4",    label: "CODE 4",    sub: "All clear — stand down",    color: "#2dd483", icon: CheckCircle2 },
     ],
   },
   emt: {
     id: "emt", name: "EMT", short: "EMS", accent: "#2dd483", dim: "#0d6640",
     icon: HeartPulse,
     alerts: [
-      { id: "MEDICAL",  label: "MEDICAL CALL",  sub: "Respond — patient transport",  color: "#2dd483", icon: HeartPulse },
-      { id: "MCI",      label: "MASS CASUALTY", sub: "MCI — all crews respond",       color: "#ff3b3b", icon: Siren },
-      { id: "TRANSPORT",label: "TRANSPORT",     sub: "Move to receiving facility",    color: "#4a9eff", icon: Ambulance },
-      { id: "CLEAR",    label: "CLEARED",       sub: "Return to service",             color: "#2dd483", icon: CheckCircle2 },
+      { id: "MEDICAL",   label: "MEDICAL CALL",  sub: "Respond — patient transport", color: "#2dd483", icon: HeartPulse },
+      { id: "MCI",       label: "MASS CASUALTY", sub: "MCI — all crews respond",      color: "#ff3b3b", icon: Siren },
+      { id: "TRANSPORT", label: "TRANSPORT",     sub: "Move to receiving facility",   color: "#4a9eff", icon: Ambulance },
+      { id: "CLEAR",     label: "CLEARED",       sub: "Return to service",            color: "#2dd483", icon: CheckCircle2 },
     ],
   },
   cert: {
     id: "cert", name: "CERT", short: "CERT", accent: "#f97316", dim: "#7a3608",
     icon: Star,
     alerts: [
-      { id: "MOBILIZE", label: "MOBILIZE",       sub: "Report to staging area",       color: "#f97316", icon: Star },
-      { id: "SAR",       label: "SEARCH & RESCUE",sub: "Active search — all members", color: "#ffae33", icon: AlertTriangle },
-      { id: "FIRST_AID", label: "FIRST AID",     sub: "Medical support needed",       color: "#2dd483", icon: HeartPulse },
-      { id: "MAJOR",     label: "MAJOR INCIDENT", sub: "All agencies — respond now",  color: "#ff3b3b", icon: Siren, allAgency: true },
+      { id: "MOBILIZE",  label: "MOBILIZE",        sub: "Report to staging area",      color: "#f97316", icon: Star },
+      { id: "SAR",       label: "SEARCH & RESCUE",  sub: "Active search — all members", color: "#ffae33", icon: AlertTriangle },
+      { id: "FIRST_AID", label: "FIRST AID",        sub: "Medical support needed",      color: "#2dd483", icon: HeartPulse },
+      { id: "MAJOR",     label: "MAJOR INCIDENT",   sub: "All agencies — respond now",  color: "#ff3b3b", icon: Siren, allAgency: true },
     ],
   },
 };
 
 const USERS = [
-  { id:"f1", name:"Capt. T. Vega",  rank:"Captain",      dept:"fire",   role:"officer",   pin:"7411" },
-  { id:"f2", name:"R. Diaz",        rank:"Firefighter",  dept:"fire",   role:"responder", pin:"1234" },
-  { id:"f3", name:"L. Nguyen",      rank:"Firefighter",  dept:"fire",   role:"responder", pin:"1234" },
-  { id:"p1", name:"Sgt. M. Cole",   rank:"Sergeant",     dept:"police", role:"officer",   pin:"2580" },
-  { id:"p2", name:"J. Park",        rank:"Officer",      dept:"police", role:"responder", pin:"1234" },
-  { id:"p3", name:"D. Frost",       rank:"Officer",      dept:"police", role:"responder", pin:"1234" },
-  { id:"e1", name:"Lt. S. Tran",    rank:"Lieutenant",   dept:"emt",    role:"officer",   pin:"3690" },
-  { id:"e2", name:"K. Okafor",      rank:"Paramedic",    dept:"emt",    role:"responder", pin:"1234" },
-  { id:"e3", name:"P. Marsh",       rank:"EMT",          dept:"emt",    role:"responder", pin:"1234" },
-  { id:"c1", name:"Dir. A. Reyes",  rank:"Director",     dept:"cert",   role:"officer",   pin:"9000" },
-  { id:"c2", name:"H. Vyn",         rank:"CERT Member",  dept:"cert",   role:"responder", pin:"1234" },
-  { id:"c3", name:"B. Santos",      rank:"CERT Member",  dept:"cert",   role:"responder", pin:"1234" },
+  { id:"f1", name:"Capt. T. Vega",  rank:"Captain",     dept:"fire",   role:"officer",   pin:"7411" },
+  { id:"f2", name:"R. Diaz",        rank:"Firefighter", dept:"fire",   role:"responder", pin:"1234" },
+  { id:"f3", name:"L. Nguyen",      rank:"Firefighter", dept:"fire",   role:"responder", pin:"1234" },
+  { id:"p1", name:"Sgt. M. Cole",   rank:"Sergeant",    dept:"police", role:"officer",   pin:"2580" },
+  { id:"p2", name:"J. Park",        rank:"Officer",     dept:"police", role:"responder", pin:"1234" },
+  { id:"p3", name:"D. Frost",       rank:"Officer",     dept:"police", role:"responder", pin:"1234" },
+  { id:"e1", name:"Lt. S. Tran",    rank:"Lieutenant",  dept:"emt",    role:"officer",   pin:"3690" },
+  { id:"e2", name:"K. Okafor",      rank:"Paramedic",   dept:"emt",    role:"responder", pin:"1234" },
+  { id:"e3", name:"P. Marsh",       rank:"EMT",         dept:"emt",    role:"responder", pin:"1234" },
+  { id:"c1", name:"Dir. A. Reyes",  rank:"Director",    dept:"cert",   role:"officer",   pin:"9000" },
+  { id:"c2", name:"H. Vyn",         rank:"CERT Member", dept:"cert",   role:"responder", pin:"1234" },
+  { id:"c3", name:"B. Santos",      rank:"CERT Member", dept:"cert",   role:"responder", pin:"1234" },
 ];
 
 const fmtTime = (d) => d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
 const fmtFull = (d) => d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
 const deptUsers = (deptId) => USERS.filter(u => u.dept === deptId);
 
+const mapDispatch = (row) => ({
+  key: row.id,
+  dept: row.dept,
+  alertId: row.alert_id,
+  label: row.label,
+  sub: row.sub,
+  color: row.color,
+  allAgency: row.all_agency,
+  target: row.target,
+  acked: row.acked,
+  by: row.dispatched_by,
+  at: new Date(row.created_at),
+  icon: DEPTS[row.dept]?.alerts.find(a => a.id === row.alert_id)?.icon || Flame,
+});
+
+const mapMessage = (row) => ({
+  id: row.id,
+  userId: row.user_id,
+  name: row.user_name,
+  role: row.user_role,
+  dept: row.dept,
+  text: row.text,
+  system: row.is_system,
+  clr: row.color,
+  bg: row.bg,
+  at: new Date(row.created_at),
+});
+
+/* ── Login ──────────────────────────────────────────────────────── */
 function Login({ onAuth }) {
   const [sel, setSel] = useState(null);
   const [pin, setPin] = useState("");
@@ -111,7 +142,7 @@ function Login({ onAuth }) {
               const D = DEPTS[u.dept];
               return (
                 <button key={u.id} className="user-row" onClick={()=>{setSel(u);setPin("");}}>
-                  <span className="avatar officer" style={{background:`linear-gradient(135deg,${D.accent},${D.dim})`}}>
+                  <span className="avatar" style={{background:`linear-gradient(135deg,${D.accent},${D.dim})`}}>
                     {u.name.split(" ").pop()[0]}
                   </span>
                   <div className="user-meta">
@@ -130,7 +161,7 @@ function Login({ onAuth }) {
       ) : (
         <div className={`pinpad ${err?"shake":""}`}>
           <button className="back" onClick={()=>{setSel(null);setPin("");}}>← back</button>
-          <span className="avatar lg officer" style={{background:`linear-gradient(135deg,${DEPTS[sel.dept].accent},${DEPTS[sel.dept].dim})`}}>
+          <span className="avatar lg" style={{background:`linear-gradient(135deg,${DEPTS[sel.dept].accent},${DEPTS[sel.dept].dim})`}}>
             {sel.name.split(" ").pop()[0]}
           </span>
           <div className="pin-name">{sel.name}</div>
@@ -154,6 +185,7 @@ function Login({ onAuth }) {
   );
 }
 
+/* ── Hold button ────────────────────────────────────────────────── */
 function HoldButton({ alert, onFire }) {
   const [progress, setProgress] = useState(0);
   const raf = useRef(null); const start = useRef(0); const HOLD_MS = 1100;
@@ -194,6 +226,7 @@ function HoldButton({ alert, onFire }) {
   );
 }
 
+/* ── Dispatch view ──────────────────────────────────────────────── */
 function DispatchView({ log, online, onFire, dept }) {
   const D = DEPTS[dept];
   const live = log.filter(e=>e.dept===dept||e.allAgency)[0];
@@ -235,7 +268,8 @@ function DispatchView({ log, online, onFire, dept }) {
   );
 }
 
-function AlertsView({ live, onAck, acked, log, user }) {
+/* ── Alerts view ────────────────────────────────────────────────── */
+function AlertsView({ live, onAck, acked, log }) {
   return (
     <div className="scroll">
       {!live ? (
@@ -278,6 +312,7 @@ function AlertsView({ live, onAck, acked, log, user }) {
   );
 }
 
+/* ── Chat view ──────────────────────────────────────────────────── */
 function ChatView({ messages, onSend, user }) {
   const [text, setText] = useState("");
   const endRef = useRef(null);
@@ -321,71 +356,181 @@ function ChatView({ messages, onSend, user }) {
   );
 }
 
+/* ── Root ───────────────────────────────────────────────────────── */
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("alerts");
   const [now, setNow] = useState(new Date());
   const [log, setLog] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [acked, setAcked] = useState(false);
-  const [messages, setMessages] = useState([
-    {id:"m1",userId:"f1",name:"Capt. T. Vega",role:"officer",dept:"fire", text:"Morning crew — apparatus check at 0700.",at:new Date(Date.now()-3600000)},
-    {id:"m2",userId:"p1",name:"Sgt. M. Cole",role:"officer",dept:"police",text:"Briefing in 10. Stay sharp.",at:new Date(Date.now()-3400000)},
-  ]);
+  const [connected, setConnected] = useState(false);
+  const [foregroundAlert, setForegroundAlert] = useState(null);
   const ackTimer = useRef(null);
 
   useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t);},[]);
 
-  const pushMsg = useCallback(m=>{
-    setMessages(x=>[...x,{id:Math.random().toString(36).slice(2),at:new Date(),...m}]);
+  // Foreground FCM messages (app is open)
+  useEffect(()=>{
+    const unsub = listenForeground(alert => {
+      setForegroundAlert(alert);
+      setTimeout(()=>setForegroundAlert(null), 6000);
+    });
+    return unsub;
   },[]);
 
-  const fire = useCallback(alert=>{
-    if(navigator.vibrate) navigator.vibrate([40,30,80]);
-    const D = DEPTS[user.dept];
-    const target = alert.allAgency ? USERS.length : deptUsers(user.dept).length;
-    const entry = {
-      key:Math.random().toString(36).slice(2), ...alert,
-      at:new Date(), acked:0, by:user.name, dept:user.dept,
-      allAgency:!!alert.allAgency, target,
+  // Load initial data + subscribe to real-time
+  useEffect(()=>{
+    let dispatchChannel, messageChannel;
+
+    async function init() {
+      // Seed initial chat messages if empty
+      const { count } = await supabase.from('messages').select('*', { count:'exact', head:true });
+      if (count === 0) {
+        await supabase.from('messages').insert([
+          { user_id:'f1', user_name:'Capt. T. Vega', user_role:'officer', dept:'fire',   text:'Morning crew — apparatus check at 0700.', is_system:false },
+          { user_id:'p1', user_name:'Sgt. M. Cole',  user_role:'officer', dept:'police', text:'Briefing in 10. Stay sharp.',              is_system:false },
+        ]);
+      }
+
+      // Load recent dispatches (today)
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const { data: dispatches } = await supabase
+        .from('dispatches')
+        .select('*')
+        .gte('created_at', todayStart.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (dispatches) setLog(dispatches.map(mapDispatch));
+
+      // Load recent messages
+      const { data: msgs } = await supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .limit(100);
+      if (msgs) setMessages(msgs.map(mapMessage));
+
+      // Real-time: new dispatches
+      dispatchChannel = supabase.channel('rt-dispatches')
+        .on('postgres_changes', { event:'INSERT', schema:'public', table:'dispatches' }, payload => {
+          setLog(l => [mapDispatch(payload.new), ...l]);
+          setAcked(false);
+          if (navigator.vibrate) navigator.vibrate([40,30,80]);
+        })
+        .on('postgres_changes', { event:'UPDATE', schema:'public', table:'dispatches' }, payload => {
+          setLog(l => l.map(e => e.key===payload.new.id ? {...e, acked:payload.new.acked} : e));
+        })
+        .subscribe(status => { if (status==='SUBSCRIBED') setConnected(true); });
+
+      // Real-time: new messages
+      messageChannel = supabase.channel('rt-messages')
+        .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
+          setMessages(m => [...m, mapMessage(payload.new)]);
+        })
+        .subscribe();
+    }
+
+    init();
+    return () => {
+      if (dispatchChannel) supabase.removeChannel(dispatchChannel);
+      if (messageChannel) supabase.removeChannel(messageChannel);
     };
-    setLog(l=>[entry,...l]);
-    setAcked(false);
-    pushMsg({
-      system:true, text:`${alert.label} dispatched by ${user.name} (${D.name})`,
-      clr:alert.color, bg:`${alert.color}18`,
+  }, []);
+
+  const pushMsg = useCallback(async (m) => {
+    await supabase.from('messages').insert({
+      user_id:   m.userId  || 'system',
+      user_name: m.name    || 'System',
+      user_role: m.role    || 'system',
+      dept:      m.dept    || null,
+      text:      m.text,
+      is_system: !!m.system,
+      color:     m.clr     || null,
+      bg:        m.bg      || null,
     });
-    if(ackTimer.current) clearInterval(ackTimer.current);
-    let n=0;
-    ackTimer.current=setInterval(()=>{
-      n+=1;
-      setLog(l=>l.map(e=>e.key===entry.key?{...e,acked:Math.min(target-1,n)}:e));
-      if(n===1) pushMsg({userId:"f2",name:"R. Diaz",role:"responder",dept:"fire",text:"Copy — en route."});
-      if(n>=target-1) clearInterval(ackTimer.current);
-    },900);
-  },[user,pushMsg]);
+  }, []);
 
-  const myLog = user ? log.filter(e=>e.dept===user.dept||e.allAgency) : [];
-  const live = myLog[0]||null;
-  const ack = ()=>{
+  const fire = useCallback(async (alert) => {
+    if (!user) return;
+    if (navigator.vibrate) navigator.vibrate([40,30,80]);
+    const target = alert.allAgency ? USERS.length : deptUsers(user.dept).length;
+
+    const { data: dispatch } = await supabase.from('dispatches').insert({
+      dept:           user.dept,
+      alert_id:       alert.id,
+      label:          alert.label,
+      sub:            alert.sub,
+      color:          alert.color,
+      all_agency:     !!alert.allAgency,
+      target,
+      acked:          0,
+      dispatched_by:  user.name,
+      dispatched_by_id: user.id,
+    }).select().single();
+
+    if (!dispatch) return;
+
+    await pushMsg({
+      system: true,
+      text: `${alert.label} dispatched by ${user.name} (${DEPTS[user.dept].name})`,
+      clr: alert.color,
+      bg: `${alert.color}18`,
+    });
+
+    // Simulate crew acks rolling in
+    if (ackTimer.current) clearInterval(ackTimer.current);
+    let n = 0;
+    ackTimer.current = setInterval(async () => {
+      n += 1;
+      await supabase.from('dispatches').update({ acked: Math.min(target - 1, n) }).eq('id', dispatch.id);
+      if (n === 1) {
+        await pushMsg({ userId:'f2', name:'R. Diaz', role:'responder', dept:'fire', text:'Copy — en route.' });
+      }
+      if (n >= target - 1) clearInterval(ackTimer.current);
+    }, 900);
+  }, [user, pushMsg]);
+
+  const ack = useCallback(async () => {
     setAcked(true);
-    if(navigator.vibrate) navigator.vibrate(25);
-    setLog(l=>l.map((e,i)=>i===0?{...e,acked:Math.min(e.target,e.acked+1)}:e));
-  };
-  const sendChat = text=>pushMsg({userId:user.id,name:user.name,role:user.role,dept:user.dept,text});
+    if (navigator.vibrate) navigator.vibrate(25);
+    if (log[0]) {
+      await supabase.from('dispatches')
+        .update({ acked: Math.min(log[0].target, log[0].acked + 1) })
+        .eq('id', log[0].key);
+    }
+  }, [log]);
 
-  if(!user) return (<div className="app-root"><style>{STYLES}</style><Login onAuth={u=>{setUser(u);setTab("alerts");}}/></div>);
+  const sendChat = useCallback((text) => {
+    if (!user) return;
+    pushMsg({ userId:user.id, name:user.name, role:user.role, dept:user.dept, text });
+  }, [user, pushMsg]);
+
+  if (!user) return (
+    <div className="app-root">
+      <style>{STYLES}</style>
+      <Login onAuth={u => { setUser(u); setTab("alerts"); initFCM(u.id, u.dept); }}/>
+    </div>
+  );
 
   const D = DEPTS[user.dept];
-  const isOfficer = user.role==="officer";
+  const isOfficer = user.role === "officer";
   const tabs = isOfficer
-    ?[{id:"dispatch",icon:Siren,label:"Dispatch"},{id:"alerts",icon:Bell,label:"Alerts"},{id:"chat",icon:MessageSquare,label:"Chat"}]
-    :[{id:"alerts",icon:Bell,label:"Alerts"},{id:"chat",icon:MessageSquare,label:"Chat"}];
+    ? [{id:"dispatch",icon:Siren,label:"Dispatch"},{id:"alerts",icon:Bell,label:"Alerts"},{id:"chat",icon:MessageSquare,label:"Chat"}]
+    : [{id:"alerts",icon:Bell,label:"Alerts"},{id:"chat",icon:MessageSquare,label:"Chat"}];
 
-  const deptMessages = messages.filter(m=>m.system||m.dept===user.dept||!m.dept);
+  const myLog = log.filter(e => e.dept===user.dept || e.allAgency);
+  const live = myLog[0] || null;
+  const deptMessages = messages.filter(m => m.system || m.dept===user.dept || !m.dept);
 
   return (
     <div className="app-root" style={{"--accent":D.accent,"--accent-dim":D.dim}}>
       <style>{STYLES}</style>
+      {foregroundAlert && (
+        <div className="fg-toast" onClick={()=>setForegroundAlert(null)}>
+          <Siren size={14}/> <strong>{foregroundAlert.title}</strong> — {foregroundAlert.body}
+        </div>
+      )}
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" style={{background:`linear-gradient(135deg,${D.accent},${D.dim})`}}>
@@ -398,6 +543,7 @@ export default function App() {
         </div>
         <div className="top-right">
           <div className="clock"><Clock size={11}/>{fmtFull(now)}</div>
+          <div className={`conn-dot ${connected?"on":""}`} title={connected?"Live":"Connecting…"}/>
           <button className="logout" onClick={()=>{setUser(null);setLog([]);}}><LogOut size={15}/></button>
         </div>
       </header>
@@ -411,10 +557,10 @@ export default function App() {
         </span>
       </div>
       <main className="body">
-        {tab==="dispatch" && isOfficer && <DispatchView log={log} online={deptUsers(user.dept).length} onFire={fire} dept={user.dept}/>}
+        {tab==="dispatch" && isOfficer  && <DispatchView log={log} online={deptUsers(user.dept).length} onFire={fire} dept={user.dept}/>}
         {tab==="dispatch" && !isOfficer && <div className="locked"><Lock size={34}/><p>Dispatch is restricted to officers.</p></div>}
-        {tab==="alerts" && <AlertsView live={live} onAck={ack} acked={acked} log={myLog} user={user}/>}
-        {tab==="chat" && <ChatView messages={deptMessages} onSend={sendChat} user={user}/>}
+        {tab==="alerts"   && <AlertsView live={live} onAck={ack} acked={acked} log={myLog}/>}
+        {tab==="chat"     && <ChatView messages={deptMessages} onSend={sendChat} user={user}/>}
       </main>
       <nav className="tabbar">
         {tabs.map(t=>{const I=t.icon;return(
@@ -434,11 +580,14 @@ const STYLES = `
 .app-root{max-width:440px;margin:0 auto;height:100vh;height:100dvh;display:flex;flex-direction:column;
   background:radial-gradient(120% 55% at 50% -8%,#15161b 0%,#0c0d11 55%,#08090c 100%);
   color:#e9e9ee;font-family:'Barlow',sans-serif;overflow:hidden;}
-
 .brand-mark{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.3);}
 .brand-name{font-family:'Oswald';font-weight:700;font-size:16px;letter-spacing:2px;}
 .brand-sub{font-size:9px;letter-spacing:1.6px;color:#85858f;}
-
+.fg-toast{display:flex;align-items:center;gap:8px;padding:11px 16px;background:#ff3b3b;color:#fff;
+  font-family:'Oswald';font-size:12px;letter-spacing:.5px;cursor:pointer;animation:slideDown .3s ease;}
+@keyframes slideDown{from{transform:translateY(-100%);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.conn-dot{width:8px;height:8px;border-radius:50%;background:#444;transition:.4s;}
+.conn-dot.on{background:#2dd483;box-shadow:0 0 6px #2dd483;}
 .login{flex:1;padding:28px 20px;overflow-y:auto;}
 .login-head{display:flex;align-items:center;gap:13px;margin-bottom:24px;}
 .login-head .brand-mark{width:44px;height:44px;border-radius:11px;background:linear-gradient(135deg,#ff3b3b,#a01010);}
@@ -462,7 +611,6 @@ const STYLES = `
 .role-pill.officer{background:rgba(255,59,59,.16);color:#ff7676;}
 .role-pill.responder{background:rgba(255,255,255,.08);color:#9a9aa3;}
 .demo-note{margin-top:16px;font-family:'JetBrains Mono';font-size:9.5px;color:#5c5c66;text-align:center;}
-
 .pinpad{display:flex;flex-direction:column;align-items:center;padding-top:6px;}
 .pinpad.shake{animation:shake .4s;}
 @keyframes shake{0%,100%{transform:translateX(0);}20%,60%{transform:translateX(-9px);}40%,80%{transform:translateX(9px);}}
@@ -476,7 +624,6 @@ const STYLES = `
   background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;cursor:pointer;transition:.12s;}
 .keypad button:active{background:rgba(255,255,255,.16);transform:scale(.94);}
 .keypad .del{background:none;border:none;color:#85858f;}
-
 .topbar{display:flex;justify-content:space-between;align-items:center;padding:13px 16px 11px;border-bottom:1px solid rgba(255,255,255,.06);}
 .brand{display:flex;align-items:center;gap:9px;}
 .brand-text{display:flex;flex-direction:column;line-height:1.1;}
@@ -487,10 +634,8 @@ const STYLES = `
   width:31px;height:31px;border-radius:8px;display:grid;place-items:center;cursor:pointer;}
 .who{display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02);}
 .who-name{font-weight:600;font-size:13px;flex:1;}
-
 .body{flex:1;overflow:hidden;display:flex;flex-direction:column;}
 .scroll{flex:1;overflow-y:auto;padding:14px 16px 16px;}
-
 .status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
 .stat{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);border-radius:11px;
   padding:11px 10px;display:flex;flex-direction:column;gap:3px;color:#9a9aa3;}
@@ -498,7 +643,6 @@ const STYLES = `
 .stat-lbl{font-size:9px;letter-spacing:1px;text-transform:uppercase;}
 .pulse-dot{font-size:10px;animation:pulse 1.4s infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
-
 .live-banner{border:1px solid var(--clr);border-radius:13px;padding:13px;margin-bottom:15px;
   background:linear-gradient(180deg,color-mix(in srgb,var(--clr) 12%,transparent),transparent);}
 .live-row{display:flex;justify-content:space-between;align-items:center;}
@@ -509,7 +653,6 @@ const STYLES = `
 .ack-fill{height:100%;background:var(--clr);border-radius:4px;transition:width .6s ease;}
 .ack-text{font-family:'JetBrains Mono';font-size:11px;color:#b5b5bd;margin-top:6px;display:block;}
 .section-cap{font-family:'Oswald';font-size:11px;letter-spacing:2.4px;color:#74747e;margin:4px 0 10px;}
-
 .btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;}
 .hold-btn{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;
   padding:15px 10px 28px;border-radius:15px;cursor:pointer;user-select:none;touch-action:none;
@@ -523,7 +666,6 @@ const STYLES = `
 .hold-hint{position:absolute;bottom:8px;font-family:'JetBrains Mono';font-size:8px;letter-spacing:1px;color:var(--clr);}
 .all-agency-badge{font-family:'JetBrains Mono';font-size:8px;letter-spacing:1px;padding:2px 7px;
   border-radius:10px;background:rgba(255,59,59,.2);color:#ff7676;}
-
 .log{display:flex;flex-direction:column;gap:7px;}
 .log-empty{font-size:12px;color:#6a6a73;padding:14px;text-align:center;border:1px dashed rgba(255,255,255,.1);border-radius:10px;}
 .log-row{display:flex;align-items:center;gap:11px;padding:11px 13px;background:rgba(255,255,255,.035);border-radius:10px;border-left:3px solid var(--clr);}
@@ -533,10 +675,8 @@ const STYLES = `
 .log-meta{font-family:'JetBrains Mono';font-size:10px;color:#8a8a93;}
 .log-time{font-family:'JetBrains Mono';font-size:11px;color:#9a9aa3;}
 .mini-tag{font-family:'JetBrains Mono';font-size:9px;background:rgba(255,59,59,.2);color:#ff8a8a;padding:1px 5px;border-radius:4px;margin-left:4px;}
-
 .resp-idle{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:60px;gap:13px;}
-.idle-ring{width:88px;height:88px;border-radius:50%;display:grid;place-items:center;
-  border:2px solid;color:#5e5e68;animation:breathe 3s infinite;}
+.idle-ring{width:88px;height:88px;border-radius:50%;display:grid;place-items:center;border:2px solid;color:#5e5e68;animation:breathe 3s infinite;}
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.05);}50%{box-shadow:0 0 0 13px rgba(255,255,255,0);}}
 .idle-title{font-family:'Oswald';font-weight:600;letter-spacing:3px;font-size:15px;color:#cfcfd6;}
 .idle-sub{font-size:13px;color:#7d7d87;max-width:230px;}
@@ -553,10 +693,8 @@ const STYLES = `
 .ack-btn{margin-top:20px;width:100%;padding:17px;border:none;border-radius:13px;font-family:'Oswald';
   font-weight:700;font-size:15px;letter-spacing:1px;background:var(--clr);color:#08080a;cursor:pointer;}
 .ack-btn:disabled{background:rgba(45,212,131,.16);color:#2dd483;border:1px solid rgba(45,212,131,.4);}
-
 .locked{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#6a6a73;padding:40px;text-align:center;}
 .locked p{font-size:14px;max-width:220px;}
-
 .chat-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
 .chat-dept-tag{display:flex;align-items:center;gap:6px;padding:7px 14px;font-family:'Oswald';font-size:11px;letter-spacing:2px;}
 .chat-scroll{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:10px;}
@@ -578,7 +716,6 @@ const STYLES = `
 .chat-input button{width:44px;height:44px;border-radius:50%;border:none;color:#fff;
   display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:.15s;}
 .chat-input button:disabled{background:rgba(255,255,255,.08)!important;color:#5c5c66;}
-
 .tabbar{display:flex;border-top:1px solid rgba(255,255,255,.08);background:rgba(10,10,13,.95);
   padding-bottom:env(safe-area-inset-bottom);}
 .tb{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 12px;
