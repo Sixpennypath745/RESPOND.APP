@@ -380,7 +380,9 @@ export default function App() {
   },[]);
 
   // Load initial data + subscribe to real-time + poll fallback
-  const lastSync = useRef(new Date().toISOString());
+  // Cursors track actual DB timestamps (not client clock) to avoid clock-skew gaps
+  const cursorMsg      = useRef(null);
+  const cursorDispatch = useRef(null);
 
   useEffect(()=>{
     let dispatchChannel, messageChannel, pollTimer;
@@ -394,20 +396,29 @@ export default function App() {
         supabase.from('messages').select('*')
           .order('created_at', { ascending: true }).limit(100),
       ]);
-      if (dispatches) setLog(dispatches.map(mapDispatch));
-      if (msgs) { setMessages(msgs.map(mapMessage)); }
-      lastSync.current = new Date().toISOString();
+      if (dispatches?.length) {
+        setLog(dispatches.map(mapDispatch));
+        // Cursor = oldest dispatch (list is desc, so last item is oldest... we want newest)
+        cursorDispatch.current = dispatches[0].created_at;
+      }
+      if (msgs?.length) {
+        setMessages(msgs.map(mapMessage));
+        cursorMsg.current = msgs[msgs.length - 1].created_at;
+      }
     }
 
-    // Poll only fetches NEW rows — never overwrites existing state
+    // Poll only fetches NEW rows using DB timestamps as cursor — never overwrites state
     async function pollNew() {
-      const since = lastSync.current;
-      lastSync.current = new Date().toISOString();
       const [{ data: newDispatches }, { data: newMsgs }] = await Promise.all([
-        supabase.from('dispatches').select('*').gt('created_at', since).order('created_at', { ascending: false }),
-        supabase.from('messages').select('*').gt('created_at', since).order('created_at', { ascending: true }),
+        cursorDispatch.current
+          ? supabase.from('dispatches').select('*').gt('created_at', cursorDispatch.current).order('created_at', { ascending: true })
+          : Promise.resolve({ data: [] }),
+        cursorMsg.current
+          ? supabase.from('messages').select('*').gt('created_at', cursorMsg.current).order('created_at', { ascending: true })
+          : Promise.resolve({ data: [] }),
       ]);
       if (newDispatches?.length) {
+        cursorDispatch.current = newDispatches[newDispatches.length - 1].created_at;
         setLog(l => {
           const ids = new Set(l.map(x => x.key));
           const add = newDispatches.filter(d => !ids.has(d.id)).map(mapDispatch);
@@ -417,6 +428,7 @@ export default function App() {
         if (navigator.vibrate) navigator.vibrate([40,30,80]);
       }
       if (newMsgs?.length) {
+        cursorMsg.current = newMsgs[newMsgs.length - 1].created_at;
         setMessages(m => {
           const ids = new Set(m.map(x => x.id));
           const add = newMsgs.filter(msg => !ids.has(msg.id)).map(mapMessage);
@@ -485,9 +497,12 @@ export default function App() {
       bg:        m.bg      || null,
     }).select().single();
 
-    // Replace temp entry with real one from DB
-    if (data) setMessages(prev => prev.map(x => x.id===tempId ? mapMessage(data) : x));
-  }, []);
+    // Replace temp entry with real one from DB and advance cursor
+    if (data) {
+      setMessages(prev => prev.map(x => x.id===tempId ? mapMessage(data) : x));
+      if (data.created_at > (cursorMsg.current || '')) cursorMsg.current = data.created_at;
+    }
+  }, [cursorMsg]);
 
   const fire = useCallback(async (alert) => {
     if (!user) return;
@@ -520,8 +535,9 @@ export default function App() {
 
     if (error || !dispatch) { console.error('Dispatch failed:', error); return; }
 
-    // Replace temp entry with real DB entry
+    // Replace temp entry with real DB entry and advance cursor
     setLog(l => l.map(e => e.key===tempKey ? mapDispatch(dispatch) : e));
+    if (dispatch.created_at > (cursorDispatch.current || '')) cursorDispatch.current = dispatch.created_at;
 
     await pushMsg({
       system: true,
