@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { supabase } from './supabase';
 
 const app = initializeApp({
@@ -11,22 +11,28 @@ const app = initializeApp({
   appId:             import.meta.env.VITE_FIREBASE_APP_ID,
 });
 
-export const messaging = getMessaging(app);
+// Don't init at module level — getMessaging throws on unsupported browsers
+let messaging = null;
+async function getMsg() {
+  if (messaging) return messaging;
+  try {
+    if (await isSupported()) messaging = getMessaging(app);
+  } catch {}
+  return messaging;
+}
 
 export async function initFCM(userId, dept) {
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
   try {
+    const msg = await getMsg();
+    if (!msg) return;
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return;
-
-    // Register the Firebase messaging service worker separately from the PWA SW
     const swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-
-    const token = await getToken(messaging, {
+    const token = await getToken(msg, {
       vapidKey: import.meta.env.VITE_FCM_VAPID_KEY,
       serviceWorkerRegistration: swReg,
     });
-
     if (token) {
       await supabase.from('fcm_tokens').upsert(
         { user_id: userId, dept, token, updated_at: new Date().toISOString() },
@@ -38,10 +44,14 @@ export async function initFCM(userId, dept) {
   }
 }
 
-// Foreground message handler — call this once in App
 export function listenForeground(onAlert) {
-  return onMessage(messaging, payload => {
-    const { title, body } = payload.notification || {};
-    onAlert({ title, body, data: payload.data });
-  });
+  let unsub = () => {};
+  getMsg().then(msg => {
+    if (!msg) return;
+    unsub = onMessage(msg, payload => {
+      const { title, body } = payload.notification || {};
+      onAlert({ title, body, data: payload.data });
+    });
+  }).catch(() => {});
+  return () => unsub();
 }
