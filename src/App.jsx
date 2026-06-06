@@ -411,10 +411,10 @@ export default function App() {
         .limit(100);
       if (msgs) setMessages(msgs.map(mapMessage));
 
-      // Real-time: new dispatches
+      // Real-time: new dispatches (deduplicate own inserts)
       dispatchChannel = supabase.channel('rt-dispatches')
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'dispatches' }, payload => {
-          setLog(l => [mapDispatch(payload.new), ...l]);
+          setLog(l => l.some(e => e.key===payload.new.id) ? l : [mapDispatch(payload.new), ...l]);
           setAcked(false);
           if (navigator.vibrate) navigator.vibrate([40,30,80]);
         })
@@ -423,10 +423,10 @@ export default function App() {
         })
         .subscribe(status => { if (status==='SUBSCRIBED') setConnected(true); });
 
-      // Real-time: new messages
+      // Real-time: new messages (deduplicate own inserts)
       messageChannel = supabase.channel('rt-messages')
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
-          setMessages(m => [...m, mapMessage(payload.new)]);
+          setMessages(m => m.some(x => x.id===payload.new.id) ? m : [...m, mapMessage(payload.new)]);
         })
         .subscribe();
     }
@@ -439,7 +439,14 @@ export default function App() {
   }, []);
 
   const pushMsg = useCallback(async (m) => {
-    await supabase.from('messages').insert({
+    // Optimistic update — show immediately, deduplicate when real-time fires
+    const tempId = 'tmp-' + Math.random().toString(36).slice(2);
+    const optimistic = { id: tempId, userId: m.userId||'system', name: m.name||'System',
+      role: m.role||'system', dept: m.dept||null, text: m.text,
+      system: !!m.system, clr: m.clr||null, bg: m.bg||null, at: new Date() };
+    setMessages(prev => [...prev, optimistic]);
+
+    const { data } = await supabase.from('messages').insert({
       user_id:   m.userId  || 'system',
       user_name: m.name    || 'System',
       user_role: m.role    || 'system',
@@ -448,7 +455,10 @@ export default function App() {
       is_system: !!m.system,
       color:     m.clr     || null,
       bg:        m.bg      || null,
-    });
+    }).select().single();
+
+    // Replace temp entry with real one from DB
+    if (data) setMessages(prev => prev.map(x => x.id===tempId ? mapMessage(data) : x));
   }, []);
 
   const fire = useCallback(async (alert) => {
@@ -456,20 +466,34 @@ export default function App() {
     if (navigator.vibrate) navigator.vibrate([40,30,80]);
     const target = alert.allAgency ? USERS.length : deptUsers(user.dept).length;
 
-    const { data: dispatch } = await supabase.from('dispatches').insert({
-      dept:           user.dept,
-      alert_id:       alert.id,
-      label:          alert.label,
-      sub:            alert.sub,
-      color:          alert.color,
-      all_agency:     !!alert.allAgency,
+    // Optimistic update — show dispatch instantly
+    const tempKey = 'tmp-' + Math.random().toString(36).slice(2);
+    const optimisticEntry = {
+      key: tempKey, dept: user.dept, alertId: alert.id,
+      label: alert.label, sub: alert.sub, color: alert.color,
+      allAgency: !!alert.allAgency, target, acked: 0,
+      by: user.name, at: new Date(), icon: alert.icon,
+    };
+    setLog(l => [optimisticEntry, ...l]);
+    setAcked(false);
+
+    const { data: dispatch, error } = await supabase.from('dispatches').insert({
+      dept:             user.dept,
+      alert_id:         alert.id,
+      label:            alert.label,
+      sub:              alert.sub,
+      color:            alert.color,
+      all_agency:       !!alert.allAgency,
       target,
-      acked:          0,
-      dispatched_by:  user.name,
+      acked:            0,
+      dispatched_by:    user.name,
       dispatched_by_id: user.id,
     }).select().single();
 
-    if (!dispatch) return;
+    if (error || !dispatch) { console.error('Dispatch failed:', error); return; }
+
+    // Replace temp entry with real DB entry
+    setLog(l => l.map(e => e.key===tempKey ? mapDispatch(dispatch) : e));
 
     await pushMsg({
       system: true,
