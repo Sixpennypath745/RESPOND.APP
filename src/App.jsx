@@ -380,10 +380,12 @@ export default function App() {
   },[]);
 
   // Load initial data + subscribe to real-time + poll fallback
+  const lastSync = useRef(new Date().toISOString());
+
   useEffect(()=>{
     let dispatchChannel, messageChannel, pollTimer;
 
-    async function loadAll() {
+    async function initialLoad() {
       const todayStart = new Date(); todayStart.setHours(0,0,0,0);
       const [{ data: dispatches }, { data: msgs }] = await Promise.all([
         supabase.from('dispatches').select('*')
@@ -393,11 +395,37 @@ export default function App() {
           .order('created_at', { ascending: true }).limit(100),
       ]);
       if (dispatches) setLog(dispatches.map(mapDispatch));
-      if (msgs) setMessages(msgs.map(mapMessage));
+      if (msgs) { setMessages(msgs.map(mapMessage)); }
+      lastSync.current = new Date().toISOString();
+    }
+
+    // Poll only fetches NEW rows — never overwrites existing state
+    async function pollNew() {
+      const since = lastSync.current;
+      lastSync.current = new Date().toISOString();
+      const [{ data: newDispatches }, { data: newMsgs }] = await Promise.all([
+        supabase.from('dispatches').select('*').gt('created_at', since).order('created_at', { ascending: false }),
+        supabase.from('messages').select('*').gt('created_at', since).order('created_at', { ascending: true }),
+      ]);
+      if (newDispatches?.length) {
+        setLog(l => {
+          const ids = new Set(l.map(x => x.key));
+          const add = newDispatches.filter(d => !ids.has(d.id)).map(mapDispatch);
+          return add.length ? [...add, ...l] : l;
+        });
+        setAcked(false);
+        if (navigator.vibrate) navigator.vibrate([40,30,80]);
+      }
+      if (newMsgs?.length) {
+        setMessages(m => {
+          const ids = new Set(m.map(x => x.id));
+          const add = newMsgs.filter(msg => !ids.has(msg.id)).map(mapMessage);
+          return add.length ? [...m, ...add] : m;
+        });
+      }
     }
 
     async function init() {
-      // Seed initial chat messages if empty
       const { count } = await supabase.from('messages').select('*', { count:'exact', head:true });
       if (count === 0) {
         await supabase.from('messages').insert([
@@ -405,11 +433,10 @@ export default function App() {
           { user_id:'p1', user_name:'Sgt. M. Cole',  user_role:'officer', dept:'police', text:'Briefing in 10. Stay sharp.',              is_system:false },
         ]);
       }
-
-      await loadAll();
+      await initialLoad();
 
       // Real-time: new dispatches
-      dispatchChannel = supabase.channel('rt-dispatches-v2')
+      dispatchChannel = supabase.channel('rt-dispatches-v3')
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'dispatches' }, payload => {
           setLog(l => l.some(e => e.key===payload.new.id) ? l : [mapDispatch(payload.new), ...l]);
           setAcked(false);
@@ -421,14 +448,14 @@ export default function App() {
         .subscribe(status => { if (status==='SUBSCRIBED') setConnected(true); });
 
       // Real-time: new messages
-      messageChannel = supabase.channel('rt-messages-v2')
+      messageChannel = supabase.channel('rt-messages-v3')
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
           setMessages(m => m.some(x => x.id===payload.new.id) ? m : [...m, mapMessage(payload.new)]);
         })
         .subscribe();
 
-      // Polling fallback — re-fetch every 4s so phone always stays in sync
-      pollTimer = setInterval(loadAll, 4000);
+      // Poll every 4s — only adds NEW rows, never replaces existing state
+      pollTimer = setInterval(pollNew, 4000);
     }
 
     init();
