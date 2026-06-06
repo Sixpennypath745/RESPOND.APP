@@ -379,9 +379,22 @@ export default function App() {
     return unsub;
   },[]);
 
-  // Load initial data + subscribe to real-time
+  // Load initial data + subscribe to real-time + poll fallback
   useEffect(()=>{
-    let dispatchChannel, messageChannel;
+    let dispatchChannel, messageChannel, pollTimer;
+
+    async function loadAll() {
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const [{ data: dispatches }, { data: msgs }] = await Promise.all([
+        supabase.from('dispatches').select('*')
+          .gte('created_at', todayStart.toISOString())
+          .order('created_at', { ascending: false }).limit(50),
+        supabase.from('messages').select('*')
+          .order('created_at', { ascending: true }).limit(100),
+      ]);
+      if (dispatches) setLog(dispatches.map(mapDispatch));
+      if (msgs) setMessages(msgs.map(mapMessage));
+    }
 
     async function init() {
       // Seed initial chat messages if empty
@@ -393,26 +406,10 @@ export default function App() {
         ]);
       }
 
-      // Load recent dispatches (today)
-      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-      const { data: dispatches } = await supabase
-        .from('dispatches')
-        .select('*')
-        .gte('created_at', todayStart.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (dispatches) setLog(dispatches.map(mapDispatch));
+      await loadAll();
 
-      // Load recent messages
-      const { data: msgs } = await supabase
-        .from('messages')
-        .select('*')
-        .order('created_at', { ascending: true })
-        .limit(100);
-      if (msgs) setMessages(msgs.map(mapMessage));
-
-      // Real-time: new dispatches (deduplicate own inserts)
-      dispatchChannel = supabase.channel('rt-dispatches')
+      // Real-time: new dispatches
+      dispatchChannel = supabase.channel('rt-dispatches-v2')
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'dispatches' }, payload => {
           setLog(l => l.some(e => e.key===payload.new.id) ? l : [mapDispatch(payload.new), ...l]);
           setAcked(false);
@@ -423,18 +420,22 @@ export default function App() {
         })
         .subscribe(status => { if (status==='SUBSCRIBED') setConnected(true); });
 
-      // Real-time: new messages (deduplicate own inserts)
-      messageChannel = supabase.channel('rt-messages')
+      // Real-time: new messages
+      messageChannel = supabase.channel('rt-messages-v2')
         .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
           setMessages(m => m.some(x => x.id===payload.new.id) ? m : [...m, mapMessage(payload.new)]);
         })
         .subscribe();
+
+      // Polling fallback — re-fetch every 4s so phone always stays in sync
+      pollTimer = setInterval(loadAll, 4000);
     }
 
     init();
     return () => {
       if (dispatchChannel) supabase.removeChannel(dispatchChannel);
       if (messageChannel) supabase.removeChannel(messageChannel);
+      if (pollTimer) clearInterval(pollTimer);
     };
   }, []);
 
